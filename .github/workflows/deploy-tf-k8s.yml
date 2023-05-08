@@ -57,8 +57,8 @@ jobs:
 
     - uses: azure/aks-set-context@v3
       with:
-         resource-group: 'GitHub'
-         cluster-name: 'arc-cluster'
+         resource-group: ${{ github.event.inputs.resource_group_name }}
+         cluster-name: ${{ github.event.inputs.aks_cluster_name }}
 
     - name: Install kubectl
       run: |
@@ -69,12 +69,12 @@ jobs:
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
 
-    # - name: Install Helm
-    #   run: |
-    #     VERSION=$(curl --silent https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    #     curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/${VERSION}/scripts/get-helm-3
-    #     chmod 700 get_helm.sh
-    #     ./get_helm.sh
+    - name: Install Helm
+      run: |
+        VERSION=$(curl --silent https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/${VERSION}/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh
 
     # - name: Verify kubectl and Helm installation
     #   run: |
@@ -147,6 +147,6 @@ jobs:
         kubectl get secrets -n actions-runner-system 
 
 
-    - name: Deploy runner.yaml manifest
-      run: |
-        kubectl apply -f manifest/runner.yaml
+    # - name: Deploy runner.yaml manifest
+    #   run: |
+    #     kubectl apply -f manifest/runner.yaml
