@@ -113,12 +113,6 @@ jobs:
       run: |
         sed -i "s|github_token: \"\"|github_token: \"${{ secrets.GH_TOKEN_ORG }}\"|g" manifest/values.override.yaml
 
-        - name: describe secret
-          env:
-            GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
-          run: |
-            kubectl describe secret controller-manager -n actions-runner-system
-
     - name: Uninstall actions-runner-controller Helm chart
       run: |
         if kubectl get deployments actions-runner-controller -n actions-runner-system > /dev/null 2>&1; then
