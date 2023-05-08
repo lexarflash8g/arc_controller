@@ -1,0 +1,152 @@
+name: Deploy AKS cluster and configure runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group_name:
+        description: 'Resource group for the AKS cluster'
+        required: true
+      aks_cluster_name:
+        description: 'AKS cluster name'
+        required: true
+      location:
+        description: 'Azure region where the resources will be created'
+        required: true
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v1
+      with:
+        terraform_version: 1.4.6
+        cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+    - name: Terraform Init
+      run: terraform -chdir=tf-files init
+
+    - name: Terraform Validate
+      run: terraform -chdir=tf-files validate
+
+    - name: Terraform Plan
+      if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+      run: TF_VAR_client_id=${{ secrets.AZURE_CLIENT_ID }} TF_VAR_subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }} TF_VAR_tenant_id=${{ secrets.AZURE_TENANT_ID }} TF_VAR_client_secret=${{ secrets.AZURE_CLIENT_SECRET }} TF_VAR_resource_group_name=${{ github.event.inputs.resource_group_name }} TF_VAR_aks_cluster_name=${{ github.event.inputs.aks_cluster_name }} TF_VAR_location=${{ github.event.inputs.location }} terraform -chdir=tf-files plan -out=tfplan -input=false -no-color
+
+    - name: Terraform Apply
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+      run: |
+        TF_VAR_client_id=${{ secrets.AZURE_CLIENT_ID }} TF_VAR_subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }} TF_VAR_tenant_id=${{ secrets.AZURE_TENANT_ID }} TF_VAR_client_secret=${{ secrets.AZURE_CLIENT_SECRET }} TF_VAR_resource_group_name=${{ github.event.inputs.resource_group_name }} TF_VAR_aks_cluster_name=${{ github.event.inputs.aks_cluster_name }} TF_VAR_location=${{ github.event.inputs.location }} terraform -chdir=tf-files apply -auto-approve
+        echo "::set-output name=resource_group_name::$(terraform output -raw resource_group_name)"
+        echo "::set-output name=cluster_name::$(terraform output -raw cluster_name)"
+
+  kubernetes_deployment:
+    runs-on: ubuntu-latest
+    needs: terraform
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - uses: Azure/login@v1
+      with:
+        creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+    - uses: azure/aks-set-context@v3
+      with:
+         resource-group: 'GitHub'
+         cluster-name: 'arc-cluster'
+
+    - name: Install kubectl
+      run: |
+        VERSION=$(curl --silent https://storage.googleapis.com/kubernetes-release/release/stable.txt)
+        curl https://storage.googleapis.com/kubernetes-release/release/$VERSION/bin/linux/amd64/kubectl \
+          --location \
+          --remote-name
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    # - name: Install Helm
+    #   run: |
+    #     VERSION=$(curl --silent https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    #     curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/${VERSION}/scripts/get-helm-3
+    #     chmod 700 get_helm.sh
+    #     ./get_helm.sh
+
+    # - name: Verify kubectl and Helm installation
+    #   run: |
+    #     kubectl version --client
+    #     helm version
+
+    - name: Install cert-manager
+      run: |
+        kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.1/cert-manager.yaml
+        kubectl wait --for=condition=available --timeout=180s deployment/cert-manager-webhook -n cert-manager
+
+    - name: Add actions-runner-controller Helm repository
+      run: |
+        helm repo add actions-runner-controller https://actions-runner-controller.github.io/actions-runner-controller
+        helm repo update
+
+    - name: Create Namespace
+      run: |  
+        kubectl delete namespace actions-runner-system
+        kubectl create namespace actions-runner-system --dry-run=client -o yaml | kubectl apply -f -
+
+
+    - name: Create Secret
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
+      run: |
+        if ! kubectl get secret controller-manager -n actions-runner-system > /dev/null 2>&1; then
+          kubectl create secret generic controller-manager \
+            --from-literal=github-token=$GITHUB_TOKEN \
+            -n actions-runner-system
+        else
+          echo "Secret 'controller-manager' already exists. Skipping creation."
+        fi
+
+    - name: describe secret
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
+      run: |
+        kubectl describe secret controller-manager -n actions-runner-system
+
+    - name: Uninstall actions-runner-controller Helm chart
+      run: |
+        if kubectl get deployments actions-runner-controller -n actions-runner-system > /dev/null 2>&1; then
+          helm uninstall actions-runner-controller -n actions-runner-system
+        else
+          echo "actions-runner-controller is not deployed. Skipping uninstallation."
+        fi
+
+    # - name: Deploy ARC manifest
+    #   run: |
+    #     kubectl create -f https://github.com/actions/actions-runner-controller/releases/download/v0.25.2/actions-runner-controller.yaml
+
+    - name: Install actions-runner-controller Helm chart
+
+      run: |
+        if ! kubectl get deployments actions-runner-controller -n actions-runner-system > /dev/null 2>&1; then
+          helm install actions-runner-controller actions-runner-controller/actions-runner-controller \
+            --namespace actions-runner-system \
+            --create-namespace 
+            
+        else
+          echo "actions-runner-controller is already deployed. Skipping installation."
+        fi
+
+    - name: Get pod info
+      run: |
+        sleep 20
+        kubectl get pods -A
+        kubectl get pods -n actions-runner-system
+        kubectl get secrets -n actions-runner-system 
+
+
+    - name: Deploy runner.yaml manifest
+      run: |
+        kubectl apply -f manifest/runner.yaml
