@@ -108,6 +108,9 @@ jobs:
           echo "Secret 'controller-manager' already exists. Skipping creation."
         fi
 
+
+
+
     - name: describe secret
       env:
         GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
