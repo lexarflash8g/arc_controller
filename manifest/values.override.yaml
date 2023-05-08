@@ -1,0 +1,6 @@
+authSecret:
+  enabled: true
+  create: false
+  name: "controller-manager"
+  annotations: {}
+  github_token: "" # This value will be replaced in the GitHub Actions workflow

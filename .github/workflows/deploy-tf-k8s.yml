@@ -96,26 +96,28 @@ jobs:
         kubectl create namespace actions-runner-system --dry-run=client -o yaml | kubectl apply -f -
 
 
-    - name: Create Secret
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
+    # - name: Create Secret
+    #   env:
+    #     GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
+    #   run: |
+    #     if ! kubectl get secret controller-manager -n actions-runner-system > /dev/null 2>&1; then
+    #       kubectl create secret generic controller-manager \
+    #         --from-literal=github-token="${{ secrets.GH_TOKEN_ORG }}" \
+    #         -n actions-runner-system
+    #     else
+    #       echo "Secret 'controller-manager' already exists. Skipping creation."
+    #     fi
+
+
+    - name: Substitute GitHub token in values.override.yaml
       run: |
-        if ! kubectl get secret controller-manager -n actions-runner-system > /dev/null 2>&1; then
-          kubectl create secret generic controller-manager \
-            --from-literal=github-token="${{ secrets.GH_TOKEN_ORG }}" \
-            -n actions-runner-system
-        else
-          echo "Secret 'controller-manager' already exists. Skipping creation."
-        fi
+        sed -i "s|github_token: \"\"|github_token: \"${{ secrets.GH_TOKEN_ORG }}\"|g" manifest/values.override.yaml
 
-
-
-
-    - name: describe secret
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
-      run: |
-        kubectl describe secret controller-manager -n actions-runner-system
+        - name: describe secret
+          env:
+            GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
+          run: |
+            kubectl describe secret controller-manager -n actions-runner-system
 
     - name: Uninstall actions-runner-controller Helm chart
       run: |
@@ -130,13 +132,11 @@ jobs:
     #     kubectl create -f https://github.com/actions/actions-runner-controller/releases/download/v0.25.2/actions-runner-controller.yaml
 
     - name: Install actions-runner-controller Helm chart
-
       run: |
         if ! kubectl get deployments actions-runner-controller -n actions-runner-system > /dev/null 2>&1; then
           helm install actions-runner-controller actions-runner-controller/actions-runner-controller \
             --namespace actions-runner-system \
-            --create-namespace -f manifest/values.yaml
-            
+            --create-namespace -f manifest/values.yaml -f manifest/values.override.yaml
         else
           echo "actions-runner-controller is already deployed. Skipping installation."
         fi
