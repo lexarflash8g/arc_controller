@@ -101,9 +101,9 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GH_TOKEN_ORG }}
       run: |
         if ! kubectl get secret controller-manager -n actions-runner-system > /dev/null 2>&1; then
-          kubectl create secret generic controller-manager \
-            --from-literal=github-token=${{ secrets.GH_TOKEN_ORG }} \
-            -n actions-runner-system
+          kubectl create secret generic controller-manager \                                                                        ⎈ arc-cluster
+            --namespace actions-runner-system \
+            --from-literal=github_token=${{ secrets.GH_TOKEN_ORG }}
         else
           echo "Secret 'controller-manager' already exists. Skipping creation."
         fi
@@ -132,7 +132,7 @@ jobs:
         if ! kubectl get deployments actions-runner-controller -n actions-runner-system > /dev/null 2>&1; then
           helm install actions-runner-controller actions-runner-controller/actions-runner-controller \
             --namespace actions-runner-system \
-            --create-namespace 
+            --create-namespace -f manifest/values.yaml
             
         else
           echo "actions-runner-controller is already deployed. Skipping installation."
