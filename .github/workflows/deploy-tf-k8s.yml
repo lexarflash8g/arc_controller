@@ -102,7 +102,7 @@ jobs:
       run: |
         if ! kubectl get secret controller-manager -n actions-runner-system > /dev/null 2>&1; then
           kubectl create secret generic controller-manager \
-            --from-literal=github-token=$GITHUB_TOKEN \
+            --from-literal=github-token=${{ secrets.GH_TOKEN_ORG }} \
             -n actions-runner-system
         else
           echo "Secret 'controller-manager' already exists. Skipping creation."
