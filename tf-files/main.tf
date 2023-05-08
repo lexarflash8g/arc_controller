@@ -10,10 +10,10 @@ terraform {
   }
 
   cloud {
-    organization = "live-beach-network"
+    organization = "arc-runner"
 
     workspaces {
-      name = "aks-runners"
+      name = "arc_controller"
     }
   }
 }
